@@ -494,6 +494,8 @@ def download_doc(doc_id: int):
     if doc.status != "approved" and user.role != "admin":
         return jsonify({"error": "Document not available"}), 403
 
+    view_mode = request.args.get("view") == "1"
+
     # Enforce free plan quota
     accessed = {a.document_id for a in user.accesses}
     if user.role != "admin" and user.subscription_status != "paid":
@@ -528,7 +530,7 @@ def download_doc(doc_id: int):
                 Params={
                     "Bucket": S3_BUCKET,
                     "Key": doc.s3_key,
-                    "ResponseContentDisposition": f'attachment; filename="{doc.file_name}"',
+                    "ResponseContentDisposition": f'{"inline" if view_mode else "attachment"}; filename="{doc.file_name}"',
                     "ResponseContentType": doc.content_type or "application/pdf",
                 },
                 ExpiresIn=DOWNLOAD_URL_EXPIRY,
@@ -546,7 +548,7 @@ def download_doc(doc_id: int):
     return send_from_directory(
         app.config["UPLOAD_FOLDER"],
         doc.file_name,
-        as_attachment=True,
+        as_attachment=not view_mode,
         mimetype=doc.content_type or "application/pdf",
     )
 

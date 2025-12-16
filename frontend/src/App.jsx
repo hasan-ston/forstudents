@@ -124,13 +124,13 @@ export default function App() {
     fetchPending();
   }
 
-  async function downloadDoc(doc) {
+  async function viewDoc(doc) {
     if (!token) {
-      setStatus("Login to download");
+      setStatus("Login to view");
       return;
     }
-    setStatus("Preparing download...");
-    const res = await fetch(`${API_BASE}/api/docs/${doc.id}/download`, { headers: { ...authHeaders } });
+    setStatus("Preparing view...");
+    const res = await fetch(`${API_BASE}/api/docs/${doc.id}/download?view=1`, { headers: { ...authHeaders } });
     if (res.status === 402) {
       const data = await res.json();
       setStatus(data.error || "Upgrade required");
@@ -141,28 +141,22 @@ export default function App() {
       const data = await res.json();
       if (data.download_url) {
         window.open(data.download_url, "_blank", "noopener");
-        setStatus("Download started");
+        setStatus("Opened in viewer");
         fetchProfile();
         return;
       }
-      setStatus(data.error || "Could not download");
+      setStatus(data.error || "Could not view");
       return;
     }
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setStatus(data.error || "Could not download");
+      setStatus(data.error || "Could not view");
       return;
     }
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${doc.title || "document"}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
-    setStatus("Download started");
+    window.open(url, "_blank", "noopener");
+    setStatus("Opened in viewer");
     fetchProfile();
   }
 
@@ -404,8 +398,8 @@ export default function App() {
                       Delete
                     </button>
                   )}
-                  <button onClick={() => downloadDoc(doc)} disabled={locked}>
-                    {locked ? "Upgrade to unlock" : "Download PDF"}
+                  <button onClick={() => viewDoc(doc)} disabled={locked}>
+                    {locked ? "Upgrade to unlock" : "View PDF"}
                   </button>
                 </div>
               </div>
@@ -441,6 +435,7 @@ export default function App() {
                   <button className="secondary" onClick={() => deleteDoc(doc.id)}>
                     Delete
                   </button>
+                  <button onClick={() => viewDoc(doc)}>View</button>
                 </div>
               </div>
             ))}
