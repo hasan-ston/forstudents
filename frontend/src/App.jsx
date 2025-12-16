@@ -136,6 +136,18 @@ export default function App() {
       setStatus(data.error || "Upgrade required");
       return;
     }
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      if (data.download_url) {
+        window.open(data.download_url, "_blank", "noopener");
+        setStatus("Download started");
+        fetchProfile();
+        return;
+      }
+      setStatus(data.error || "Could not download");
+      return;
+    }
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       setStatus(data.error || "Could not download");

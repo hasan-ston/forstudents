@@ -79,6 +79,7 @@ SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
 SENDGRID_FROM = os.getenv("SENDGRID_FROM", EMAIL_FROM)
 S3_BUCKET = os.getenv("S3_BUCKET", "")
 AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", ""))
+DOWNLOAD_URL_EXPIRY = int(os.getenv("DOWNLOAD_URL_EXPIRY", "300"))
 
 s3_client = None
 if boto3 and S3_BUCKET:
@@ -189,6 +190,16 @@ class Feedback(db.Model):
             "user_email": self.user.email if self.user else None,
             "created_at": self.created_at.isoformat(),
         }
+
+
+class DownloadAudit(db.Model):
+    __tablename__ = "download_audits"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    document_id = db.Column(db.Integer, db.ForeignKey("documents.id"), nullable=False)
+    ip_address = db.Column(db.String(64))
+    user_agent = db.Column(db.String(512))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 with app.app_context():
@@ -460,23 +471,40 @@ def download_doc(doc_id: int):
         db.session.add(DocumentAccess(user_id=user.id, document_id=doc.id))
         db.session.commit()
 
+    # Log download attempt (best effort)
+    try:
+        ip_forwarded = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+        ip_addr = ip_forwarded or request.remote_addr
+        ua = request.headers.get("User-Agent")
+        audit = DownloadAudit(
+            user_id=user.id if user else None,
+            document_id=doc.id,
+            ip_address=ip_addr,
+            user_agent=ua,
+        )
+        db.session.add(audit)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
     # Serve from S3 or local disk
     if doc.storage == "s3" and _use_s3() and doc.s3_key:
         try:
-            obj = s3_client.get_object(Bucket=S3_BUCKET, Key=doc.s3_key)
+            url = s3_client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": S3_BUCKET,
+                    "Key": doc.s3_key,
+                    "ResponseContentDisposition": f'attachment; filename="{doc.file_name}"',
+                    "ResponseContentType": doc.content_type or "application/pdf",
+                },
+                ExpiresIn=DOWNLOAD_URL_EXPIRY,
+            )
+            return jsonify({"download_url": url})
         except (BotoCoreError, ClientError) as exc:
             return jsonify({"error": f"File missing on server: {exc}"}), 410
-
-        def generate():
-            for chunk in obj["Body"].iter_chunks(chunk_size=8192):
-                if chunk:
-                    yield chunk
-
-        headers = {
-            "Content-Disposition": f'attachment; filename="{doc.file_name}"',
-            "Content-Type": doc.content_type or "application/pdf",
-        }
-        return app.response_class(generate(), headers=headers)
+        except Exception as exc:
+            return jsonify({"error": f"Cannot generate download link: {exc}"}), 500
 
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], doc.file_name)
     if not os.path.isfile(filepath):
