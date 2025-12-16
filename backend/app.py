@@ -32,7 +32,13 @@ except ImportError:  # pragma: no cover - optional
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "dev-jwt-secret")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///app.db")
+_raw_db_url = os.getenv("DATABASE_URL", "sqlite:///app.db")
+# If using Postgres without explicit driver, switch to psycopg (psycopg3) driver
+if _raw_db_url.startswith("postgres://"):
+    _raw_db_url = _raw_db_url.replace("postgres://", "postgresql+psycopg://", 1)
+elif _raw_db_url.startswith("postgresql://") and "+psycopg" not in _raw_db_url:
+    _raw_db_url = _raw_db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+app.config["SQLALCHEMY_DATABASE_URI"] = _raw_db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # 25MB uploads
 app.config["UPLOAD_FOLDER"] = os.path.join(app.instance_path, "uploads")
