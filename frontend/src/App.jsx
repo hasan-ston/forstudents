@@ -178,6 +178,26 @@ export default function App() {
     fetchPending();
   }
 
+  async function deleteDoc(docId) {
+    if (!token) {
+      setStatus("Login first");
+      return;
+    }
+    if (!window.confirm("Delete this document? This cannot be undone.")) return;
+    const res = await fetch(`${API_BASE}/api/docs/${docId}`, {
+      method: "DELETE",
+      headers: { ...authHeaders },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setStatus(data.error || "Delete failed");
+      return;
+    }
+    setStatus("Document deleted");
+    fetchDocuments();
+    fetchPending();
+  }
+
   async function sendFeedback(e) {
     e.preventDefault();
     if (!feedback.message.trim()) {
