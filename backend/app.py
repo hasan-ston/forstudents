@@ -28,6 +28,8 @@ except ImportError:  # pragma: no cover - optional
     boto3 = None
     BotoCoreError = ClientError = Exception
 
+from sqlalchemy.exc import OperationalError
+
 # Basic Flask setup
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
@@ -40,6 +42,13 @@ elif _raw_db_url.startswith("postgresql://") and "+psycopg" not in _raw_db_url:
     _raw_db_url = _raw_db_url.replace("postgresql://", "postgresql+psycopg://", 1)
 app.config["SQLALCHEMY_DATABASE_URI"] = _raw_db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,
+    "pool_recycle": 300,
+    "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
+    "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "2")),
+    "pool_timeout": 30,
+}
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # 25MB uploads
 app.config["UPLOAD_FOLDER"] = os.path.join(app.instance_path, "uploads")
 
@@ -187,6 +196,8 @@ def admin_required(fn):
     @jwt_required()
     def wrapper(*args, **kwargs):
         user = _current_user()
+        if not user:
+            return jsonify({"error": "Unauthorized"}), 401
         if user.role != "admin":
             return jsonify({"error": "Admin only"}), 403
         return fn(*args, **kwargs)
@@ -462,7 +473,14 @@ def submit_feedback():
         user_id=current_user.id if current_user else None,
     )
     db.session.add(fb)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except OperationalError:
+        db.session.rollback()
+        return jsonify({"error": "Database connection issue, please retry"}), 503
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Failed to save feedback"}), 500
 
     # Notify admin and optionally user/contact (best effort)
     send_email(
