@@ -200,7 +200,12 @@ def allowed_file(filename: str) -> bool:
 
 def _current_user() -> User:
     user_id = get_jwt_identity()
-    return User.query.get(int(user_id))
+    if not user_id:
+        return None
+    try:
+        return User.query.get(int(user_id))
+    except Exception:
+        return None
 
 
 def _use_s3() -> bool:
@@ -449,7 +454,7 @@ def submit_feedback():
     document_id = data.get("document_id")
     if not message:
         return jsonify({"error": "Message required"}), 400
-    current_user = _current_user() if get_jwt_identity() else None
+    current_user = _current_user()
     fb = Feedback(
         message=message,
         contact=contact,
