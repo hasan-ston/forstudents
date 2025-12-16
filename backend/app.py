@@ -482,14 +482,23 @@ def submit_feedback():
         db.session.rollback()
         return jsonify({"error": "Failed to save feedback"}), 500
 
-    # Notify admin and optionally user/contact (best effort)
-    send_email(
-        ADMIN_EMAIL,
-        "New feedback received",
-        f"From: {current_user.email if current_user else contact or 'anonymous'}\nMessage: {message}\nDocument ID: {document_id}",
-    )
-    ack_to = current_user.email if current_user else (contact if contact and "@" in contact else None)
-    send_email(ack_to, "We received your feedback", "Thanks for sharing feedback. We'll review it shortly.")
+    # Send emails asynchronously (non-blocking)
+    user_email = current_user.email if current_user else contact
+
+    def send_feedback_emails():
+        try:
+            send_email(
+                ADMIN_EMAIL,
+                "New feedback received",
+                f"From: {user_email or 'anonymous'}\nMessage: {message}\nDocument ID: {document_id}",
+            )
+            ack_to = current_user.email if current_user else (contact if contact and "@" in contact else None)
+            if ack_to:
+                send_email(ack_to, "We received your feedback", "Thanks for sharing feedback. We'll review it shortly.")
+        except Exception as e:
+            print(f"Failed to send feedback email: {e}")
+
+    Thread(target=send_feedback_emails, daemon=True).start()
 
     return jsonify({"feedback": fb.serialize()}), 201
 
