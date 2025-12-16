@@ -226,6 +226,27 @@ button:active {
   margin-top: 12px;
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.qa-list {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.qa-item {
+  background: #0b1021;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.qa-item .answer {
+  margin: 4px 0 0;
+  color: #cbd5e1;
 }
 
 .pending {

@@ -80,6 +80,8 @@ SENDGRID_FROM = os.getenv("SENDGRID_FROM", EMAIL_FROM)
 S3_BUCKET = os.getenv("S3_BUCKET", "")
 AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", ""))
 DOWNLOAD_URL_EXPIRY = int(os.getenv("DOWNLOAD_URL_EXPIRY", "300"))
+NOTES_API_BASE = os.getenv("NOTES_API_BASE", "")
+NOTES_API_KEY = os.getenv("NOTES_API_KEY", "")
 
 s3_client = None
 if boto3 and S3_BUCKET:
@@ -205,6 +207,16 @@ class DownloadAudit(db.Model):
     document = db.relationship("Document")
 
 
+class DocumentQuestions(db.Model):
+    __tablename__ = "document_questions"
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.Integer, db.ForeignKey("documents.id"), unique=True, nullable=False)
+    questions_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    document = db.relationship("Document")
+
+
 with app.app_context():
     db.create_all()
 
@@ -238,8 +250,42 @@ def _current_user() -> User:
         return None
 
 
+def _enforce_doc_access(user: User, doc: Document):
+    """Apply the same access rules used for downloads and track access."""
+    if doc.status != "approved" and user.role != "admin":
+        return False, (jsonify({"error": "Document not available"}), 403)
+
+    accessed = {a.document_id for a in user.accesses}
+    if user.role != "admin" and user.subscription_status != "paid":
+        if doc.id not in accessed and len(accessed) >= FREE_DOC_LIMIT:
+            return False, (jsonify({"error": "Upgrade required to access more documents"}), 402)
+
+    if doc.id not in accessed:
+        db.session.add(DocumentAccess(user_id=user.id, document_id=doc.id))
+        db.session.commit()
+    return True, None
+
+
 def _use_s3() -> bool:
     return bool(s3_client and S3_BUCKET)
+
+
+def _read_doc_bytes(doc: Document):
+    """Return (filename, content_type, bytes) for a document."""
+    filename = doc.file_name or f"document-{doc.id}.pdf"
+    content_type = doc.content_type or "application/pdf"
+
+    if doc.storage == "s3" and _use_s3() and doc.s3_key:
+        obj = s3_client.get_object(Bucket=S3_BUCKET, Key=doc.s3_key)
+        data = obj["Body"].read()
+        return filename, content_type, data
+
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], doc.file_name)
+    if not os.path.isfile(filepath):
+        return None, None, None
+    with open(filepath, "rb") as f:
+        data = f.read()
+    return filename, content_type, data
 
 
 def send_email(to_address: str, subject: str, body: str) -> bool:
@@ -608,6 +654,91 @@ def download_doc(doc_id: int):
         as_attachment=not view_mode,
         mimetype=doc.content_type or "application/pdf",
     )
+
+
+# Questions integration
+@app.get("/api/docs/<int:doc_id>/questions")
+@jwt_required()
+def get_doc_questions(doc_id: int):
+    user = _current_user()
+    doc = Document.query.get_or_404(doc_id)
+
+    ok, resp = _enforce_doc_access(user, doc)
+    if not ok:
+        return resp
+
+    existing = DocumentQuestions.query.filter_by(document_id=doc.id).first()
+    if not existing:
+        return jsonify({"questions": []})
+
+    try:
+        questions = json.loads(existing.questions_json or "[]")
+    except Exception:
+        questions = []
+    return jsonify({"questions": questions, "document_id": doc.id, "generated_at": existing.created_at.isoformat()})
+
+
+@app.post("/api/docs/<int:doc_id>/questions")
+@jwt_required()
+def generate_doc_questions(doc_id: int):
+    user = _current_user()
+    doc = Document.query.get_or_404(doc_id)
+
+    if doc.status != "approved" and user.role != "admin":
+        return jsonify({"error": "Document not available"}), 403
+    ok, resp = _enforce_doc_access(user, doc)
+    if not ok:
+        return resp
+    if user.role != "admin" and user.subscription_status != "paid":
+        return jsonify({"error": "Upgrade required to generate practice questions"}), 402
+    if not NOTES_API_BASE:
+        return jsonify({"error": "Notes API base URL not configured"}), 503
+
+    filename, content_type, data = None, None, None
+    try:
+        filename, content_type, data = _read_doc_bytes(doc)
+    except Exception as exc:
+        return jsonify({"error": f"Failed to read document: {exc}"}), 500
+    if not data:
+        return jsonify({"error": "File missing on server"}), 410
+
+    try:
+        headers = {}
+        if NOTES_API_KEY:
+            headers["X-Api-Key"] = NOTES_API_KEY
+        resp = requests.post(
+            NOTES_API_BASE.rstrip("/") + "/api/generate-questions/",
+            headers=headers,
+            files={"file": (filename, data, content_type or "application/pdf")},
+            timeout=60,
+        )
+    except Exception as exc:
+        return jsonify({"error": f"Notes service unreachable: {exc}"}), 502
+
+    try:
+        payload = resp.json()
+    except Exception:
+        payload = {}
+    if not resp.ok:
+        return jsonify({"error": payload.get("error") or "Notes API error"}), resp.status_code
+
+    questions = payload.get("questions") or []
+    if not isinstance(questions, list):
+        return jsonify({"error": "Notes API did not return questions"}), 502
+
+    existing = DocumentQuestions.query.filter_by(document_id=doc.id).first()
+    if existing:
+        existing.questions_json = json.dumps(questions)
+        existing.created_at = datetime.utcnow()
+    else:
+        existing = DocumentQuestions(
+            document_id=doc.id,
+            questions_json=json.dumps(questions),
+        )
+        db.session.add(existing)
+    db.session.commit()
+
+    return jsonify({"questions": questions, "document_id": doc.id})
 
 
 # Feedback

@@ -11,6 +11,9 @@ export default function App() {
   const [audits, setAudits] = useState([]);
   const [showAudits, setShowAudits] = useState(false);
   const [status, setStatus] = useState("");
+  const [docQuestions, setDocQuestions] = useState({});
+  const [loadingQuestionsFor, setLoadingQuestionsFor] = useState(null);
+  const [generatingFor, setGeneratingFor] = useState(null);
   const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [uploadForm, setUploadForm] = useState({ title: "", course_code: "", year: "", term: "", kind: "paper", notes: "", file: null });
   const [feedback, setFeedback] = useState({ message: "", contact: "" });
@@ -211,24 +214,55 @@ export default function App() {
     fetchPending();
   }
 
-  async function deleteDoc(docId) {
+  async function fetchDocQuestions(docId) {
+    if (!token) {
+      setStatus("Login to view questions");
+      return;
+    }
+    setLoadingQuestionsFor(docId);
+    setStatus("Loading practice questions...");
+    try {
+      const res = await fetch(`${API_BASE}/api/docs/${docId}/questions`, { headers: { ...authHeaders } });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatus(data.error || "Could not load questions");
+        return;
+      }
+      setDocQuestions((prev) => ({ ...prev, [docId]: data.questions || [] }));
+      setStatus(data.questions?.length ? "Questions loaded" : "No questions yet — generate some!");
+    } catch {
+      setStatus("Could not load questions");
+    } finally {
+      setLoadingQuestionsFor(null);
+    }
+  }
+
+  async function generateDocQuestions(doc) {
     if (!token) {
       setStatus("Login first");
       return;
     }
-    if (!window.confirm("Delete this document? This cannot be undone.")) return;
-    const res = await fetch(`${API_BASE}/api/docs/${docId}`, {
-      method: "DELETE",
-      headers: { ...authHeaders },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setStatus(data.error || "Delete failed");
+    if (!isPaid && user?.role !== "admin") {
+      setStatus("Upgrade to generate practice questions");
       return;
     }
-    setStatus("Document deleted");
-    fetchDocuments();
-    fetchPending();
+    setGeneratingFor(doc.id);
+    setStatus("Generating practice questions...");
+    try {
+      const res = await fetch(`${API_BASE}/api/docs/${doc.id}/questions`, { method: "POST", headers: { ...authHeaders } });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatus(data.error || "Generation failed");
+        return;
+      }
+      setDocQuestions((prev) => ({ ...prev, [doc.id]: data.questions || [] }));
+      setStatus("Questions ready");
+      fetchProfile();
+    } catch {
+      setStatus("Could not generate questions");
+    } finally {
+      setGeneratingFor(null);
+    }
   }
 
   async function sendFeedback(e) {
@@ -420,7 +454,30 @@ export default function App() {
                   <button onClick={() => viewDoc(doc)} disabled={locked}>
                     {locked ? "Upgrade to unlock" : "View PDF"}
                   </button>
+                  {user && (
+                    <>
+                      <button className="secondary" onClick={() => fetchDocQuestions(doc.id)} disabled={loadingQuestionsFor === doc.id}>
+                        {loadingQuestionsFor === doc.id ? "Loading..." : "View questions"}
+                      </button>
+                      <button
+                        onClick={() => generateDocQuestions(doc)}
+                        disabled={generatingFor === doc.id || (!isPaid && user?.role !== "admin")}
+                      >
+                        {generatingFor === doc.id ? "Generating..." : !isPaid && user?.role !== "admin" ? "Upgrade to generate" : "Generate questions"}
+                      </button>
+                    </>
+                  )}
                 </div>
+                {docQuestions[doc.id]?.length > 0 && (
+                  <div className="qa-list">
+                    {docQuestions[doc.id].map((qa, idx) => (
+                      <div className="qa-item" key={idx}>
+                        <p className="muted">Q{idx + 1}. {qa.question}</p>
+                        <p className="answer">{qa.answer}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
