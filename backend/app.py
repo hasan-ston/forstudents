@@ -236,9 +236,8 @@ def register():
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "User already exists"}), 409
 
-    role = "admin" if not User.query.filter_by(role="admin").first() else "user"
-    if os.getenv("ADMIN_EMAIL") and email == os.getenv("ADMIN_EMAIL"):
-        role = "admin"
+    # Only promote to admin when email matches configured admin email.
+    role = "admin" if (os.getenv("ADMIN_EMAIL") and email == os.getenv("ADMIN_EMAIL")) else "user"
 
     user = User(email=email, role=role)
     user.set_password(password)
