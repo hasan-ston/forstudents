@@ -226,21 +226,37 @@ def _use_s3() -> bool:
 
 def send_email(to_address: str, subject: str, body: str) -> bool:
     """Best-effort SMTP mailer; silently no-ops if SMTP creds are missing."""
+    print(f"=== SEND_EMAIL CALLED ===")
+    print(f"To: {to_address}")
+    print(f"SMTP_HOST: {SMTP_HOST}")
+    print(f"SMTP_USER: {SMTP_USER}")
+    print(f"SMTP_PASS configured: {bool(SMTP_PASS)}")
+    
     if not to_address or not SMTP_HOST or not SMTP_USER or not SMTP_PASS:
+        print(f"Email skipped - missing config")
         return False
+    
     try:
         msg = EmailMessage()
         msg["Subject"] = subject
         msg["From"] = EMAIL_FROM
         msg["To"] = to_address
         msg.set_content(body)
+        
+        print(f"Connecting to {SMTP_HOST}:{SMTP_PORT}...")
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            print("Starting TLS...")
             server.starttls()
+            print("Logging in...")
             server.login(SMTP_USER, SMTP_PASS)
+            print("Sending message...")
             server.send_message(msg)
+            print("Email sent successfully!")
         return True
     except Exception as e:
-        print(f"Email send failed to {to_address}: {e}")
+        print(f"!!! EMAIL FAILED: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
