@@ -8,6 +8,8 @@ export default function App() {
   const [freeLimit, setFreeLimit] = useState(2);
   const [documents, setDocuments] = useState([]);
   const [pendingDocs, setPendingDocs] = useState([]);
+  const [audits, setAudits] = useState([]);
+  const [showAudits, setShowAudits] = useState(false);
   const [status, setStatus] = useState("");
   const [authForm, setAuthForm] = useState({ email: "", password: "" });
   const [uploadForm, setUploadForm] = useState({ title: "", course_code: "", year: "", term: "", kind: "paper", notes: "", file: null });
@@ -64,6 +66,23 @@ export default function App() {
       if (res.ok) setPendingDocs(data.documents || []);
     } catch {
       setStatus("Could not load pending docs");
+    }
+  }
+
+  async function fetchAudits() {
+    if (!token || user?.role !== "admin") return;
+    setStatus("Loading downloads...");
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/downloads?limit=100`, { headers: { ...authHeaders } });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatus(data.error || "Failed to load audits");
+        return;
+      }
+      setAudits(data.audits || []);
+      setStatus("Downloads loaded");
+    } catch {
+      setStatus("Could not load audits");
     }
   }
 
@@ -379,9 +398,9 @@ export default function App() {
           <small className="muted">Approved uploads</small>
         </div>
         <div className="doc-grid">
-            {documents.map((doc) => {
-              const locked = lockedDocIds.has(doc.id);
-              return (
+          {documents.map((doc) => {
+            const locked = lockedDocIds.has(doc.id);
+            return (
                 <div className={`doc-card ${locked ? "locked" : ""}`} key={doc.id}>
                   <div className="doc-meta">
                   <p className="eyebrow">{doc.kind === "solution" ? "Solution" : "Past paper"}</p>
@@ -440,6 +459,43 @@ export default function App() {
               </div>
             ))}
           </div>
+        </section>
+      )}
+
+      {user?.role === "admin" && (
+        <section className="card">
+          <div className="card-header">
+            <h2>Download audits</h2>
+            <div className="actions">
+              <button className="secondary" onClick={() => setShowAudits((v) => !v)}>
+                {showAudits ? "Hide" : "Show"}
+              </button>
+              {showAudits && (
+                <button onClick={fetchAudits}>
+                  Refresh
+                </button>
+              )}
+            </div>
+          </div>
+          {showAudits && (
+            <div className="table audits">
+              <div className="row head">
+                <span>When</span>
+                <span>User</span>
+                <span>Doc</span>
+                <span>IP</span>
+              </div>
+              {audits.map((a) => (
+                <div className="row" key={a.id}>
+                  <span>{new Date(a.created_at).toLocaleString()}</span>
+                  <span>{a.user_email || `User #${a.user_id || "?"}`}</span>
+                  <span>{a.doc_title || `Doc #${a.document_id}`}</span>
+                  <span className="muted">{a.ip_address || "-"}</span>
+                </div>
+              ))}
+              {audits.length === 0 && <p className="muted">No audits yet.</p>}
+            </div>
+          )}
         </section>
       )}
 
