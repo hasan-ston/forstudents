@@ -1,50 +1,50 @@
-# Personal Finance Dashboard
+# ForStudents – Past Paper Library
 
-Full-stack sample showing a Flask API with Redis caching and a React dashboard for multi-user expense tracking. The backend is structured for easy decomposition into services and horizontal scaling.
+Campus-only past paper sharing with uploads, admin approvals, gated downloads (free vs paid), feedback, and optional S3 storage.
 
 ## Quickstart
 1) Backend
-- Install deps: `cd backend && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
-- Run dev server (SQLite): `FLASK_APP=app.py flask --app app.py run --debug`
-- Ensure Redis is available at `REDIS_URL` (defaults to `redis://localhost:6379/0`).
+- `cd backend && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
+- Create `.env` (see template) and run: `python app.py`
+- Start command in production: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120`
 
 2) Frontend
 - `cd frontend && npm install`
-- `npm run dev` (Vite) then open the printed URL.
+- `npm run dev` (set `VITE_API_BASE` to your backend URL)
+- Production build: `npm run build` (output `dist/`)
 
-3) Flow
-- Register or log in, add expenses, optionally click "Import mock transactions" to simulate bank syncing. Category summary is cached in Redis.
+3) Features / flow
+- Register/login (JWT). Only emails matching `ADMIN_EMAIL` become admin.
+- Upload PDF past papers/solutions. Admin approves/rejects before publishing.
+- Free users can unlock a limited number of documents; paid users get full access.
+- Feedback form writes to DB and emails admin/submitter (requires SMTP envs).
+- Optional S3 offload for uploads; otherwise stored locally (ephemeral on PaaS).
 
-## Backend architecture (kept beginner-friendly)
-- Single Flask app factory (`backend/app.py`) that wires blueprints, JWT auth, Redis caching, and CORS in one place.
-- Modules: `routes/` (auth, expenses, imports), `services/` (cache helper, mock bank client), `models.py` (User, Expense), `config.py` (env settings).
-- Caching: expense summary stored in Redis (`CACHE_TTL_SECONDS` default 60s) with basic invalidation on writes.
-- Mock bank ingestion: `/api/imports/mock` generates sample transactions and saves them as expenses.
-- Auth: JWT tokens on register/login; routes use `@jwt_required`.
-- Persistence: SQLite by default; swap `DATABASE_URL` for Postgres/MySQL when ready.
+## Key config (env)
+- Core: `SECRET_KEY`, `JWT_SECRET_KEY`, `FREE_DOC_LIMIT`, `FRONTEND_URL`
+- Payments: `SIMULATE_PAYMENTS=true` (or Stripe keys to charge)
+- SMTP (for emails): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`, `ADMIN_EMAIL`
+- S3 (optional): `S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+- DB: `DATABASE_URL` (sqlite by default; use Postgres in prod)
 
-## Scalability notes
-- Stateless app servers: JWT sessions; Redis for shared cache. Run multiple Flask instances behind a load balancer (NGINX/ALB/Ingress).
-- Database: move to managed Postgres with read replicas for read-heavy workloads; add migrations (Alembic) and indices on `user_id`, `created_at`.
-- Caching: expand Redis usage for frequently accessed aggregates and bank responses; add cache versioning and background refresh.
-- Background work: offload bank imports to a worker queue (e.g., Celery/RQ) and expose webhooks/polling for sync status.
-- Microservice path: split auth, expense ledger, and bank-ingestion services; use shared messaging (Kafka/SQS) for ingestion events.
-- Observability: add request logging, tracing (OpenTelemetry), metrics on latency/cache hit rate, and per-endpoint SLIs.
+## Content protection considerations
+- Access control: downloads require auth; free users get limited unlocked docs.
+- Rate/abuse: add IP/user download rate limits and alerting for unusual spikes.
+- Watermarking: render PDFs with a light, signed watermark per user/session.
+- Link hardening: short-lived, signed URLs for S3 downloads.
+- Audit: log downloader user_id/doc_id/ip and surface to admin.
+- Takedown: keep a path for removal requests and rejections.
 
-## API surface
-- `POST /api/auth/register` `{email, password}` -> `{access_token, user}`
-- `POST /api/auth/login` `{email, password}` -> `{access_token, user}`
-- `POST /api/expenses` `{category, description?, amount}` (auth)
-- `GET /api/expenses` (auth) recent list
-- `GET /api/expenses/summary` (auth, cached)
-- `POST /api/imports/mock` (auth) simulate bank transaction import
+## Frontend stack
+- Vite + React single page (`frontend/src/App.jsx`), configurable `VITE_API_BASE`.
+- Dark UI with plan cards, upload form, locked cards, admin approval queue, feedback form.
 
-## Frontend
-- Vite + React (`frontend/src/App.jsx`) with a dark dashboard: auth, expense entry, mock import, category pie, and recent expenses table.
-- Configurable API base via `VITE_API_BASE` (defaults to `http://localhost:5000`).
+## Backend stack
+- Flask + SQLAlchemy + JWT auth in `backend/app.py`
+- Documents, Users (role/plan), Feedback, DocumentAccess tracking
+- Optional S3 storage, Stripe wiring (manual upgrade + webhook placeholders)
 
-## Next steps
-- Add validation and better error surfaces; client-side form validation.
-- Add Alembic migrations and seed data.
-- Replace mock bank client with real provider SDK in `services/mock_bank.py` and secure secrets via env.
-- Add tests (pytest for backend, Vitest/RTL for frontend) and CI to run lint/tests on pushes.
+## Deploy tips
+- Render backend: Root `backend`, Start `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120`
+- Vercel/Netlify frontend: Root `frontend`, Build `npm run build`, Output `dist`, env `VITE_API_BASE=<backend>`
+- Use Postgres + S3 in production; sqlite + local storage are ephemeral.
