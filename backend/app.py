@@ -522,24 +522,40 @@ def download_doc(doc_id: int):
     except Exception:
         db.session.rollback()
 
-    # Serve from S3 with short-lived presigned URL by default
+    # Serve from S3; default is streaming through backend (ties to user auth). Optional presign=1 to get a short-lived URL.
     if doc.storage == "s3" and _use_s3() and doc.s3_key:
+        if request.args.get("presign") == "1":
+            try:
+                url = s3_client.generate_presigned_url(
+                    "get_object",
+                    Params={
+                        "Bucket": S3_BUCKET,
+                        "Key": doc.s3_key,
+                        "ResponseContentDisposition": f'{"inline" if view_mode else "attachment"}; filename="{doc.file_name}"',
+                        "ResponseContentType": doc.content_type or "application/pdf",
+                    },
+                    ExpiresIn=DOWNLOAD_URL_EXPIRY,
+                )
+                return jsonify({"download_url": url})
+            except (BotoCoreError, ClientError) as exc:
+                return jsonify({"error": f"File missing on server: {exc}"}), 410
+            except Exception as exc:
+                return jsonify({"error": f"Cannot generate download link: {exc}"}), 500
         try:
-            url = s3_client.generate_presigned_url(
-                "get_object",
-                Params={
-                    "Bucket": S3_BUCKET,
-                    "Key": doc.s3_key,
-                    "ResponseContentDisposition": f'{"inline" if view_mode else "attachment"}; filename="{doc.file_name}"',
-                    "ResponseContentType": doc.content_type or "application/pdf",
-                },
-                ExpiresIn=DOWNLOAD_URL_EXPIRY,
-            )
-            return jsonify({"download_url": url})
+            obj = s3_client.get_object(Bucket=S3_BUCKET, Key=doc.s3_key)
         except (BotoCoreError, ClientError) as exc:
             return jsonify({"error": f"File missing on server: {exc}"}), 410
-        except Exception as exc:
-            return jsonify({"error": f"Cannot generate download link: {exc}"}), 500
+
+        def generate():
+            for chunk in obj["Body"].iter_chunks(chunk_size=8192):
+                if chunk:
+                    yield chunk
+
+        headers = {
+            "Content-Disposition": f'{"inline" if view_mode else "attachment"}; filename="{doc.file_name}"',
+            "Content-Type": doc.content_type or "application/pdf",
+        }
+        return app.response_class(generate(), headers=headers)
 
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], doc.file_name)
     if not os.path.isfile(filepath):
