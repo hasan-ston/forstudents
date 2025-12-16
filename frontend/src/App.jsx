@@ -166,6 +166,26 @@ export default function App() {
     fetchProfile();
   }
 
+  async function deleteDoc(docId) {
+    if (!token) {
+      setStatus("Login first");
+      return;
+    }
+    if (!window.confirm("Delete this document? This cannot be undone.")) return;
+    const res = await fetch(`${API_BASE}/api/docs/${docId}`, {
+      method: "DELETE",
+      headers: { ...authHeaders },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setStatus(data.error || "Delete failed");
+      return;
+    }
+    setStatus("Document deleted");
+    fetchDocuments();
+    fetchPending();
+  }
+
   async function approve(docId, action) {
     const res = await fetch(`${API_BASE}/api/docs/${docId}/${action}`, { method: "POST", headers: { ...authHeaders } });
     if (!res.ok) {
@@ -365,11 +385,11 @@ export default function App() {
           <small className="muted">Approved uploads</small>
         </div>
         <div className="doc-grid">
-          {documents.map((doc) => {
-            const locked = lockedDocIds.has(doc.id);
-            return (
-              <div className={`doc-card ${locked ? "locked" : ""}`} key={doc.id}>
-                <div className="doc-meta">
+            {documents.map((doc) => {
+              const locked = lockedDocIds.has(doc.id);
+              return (
+                <div className={`doc-card ${locked ? "locked" : ""}`} key={doc.id}>
+                  <div className="doc-meta">
                   <p className="eyebrow">{doc.kind === "solution" ? "Solution" : "Past paper"}</p>
                   <h3>{doc.title}</h3>
                   <p className="muted">
@@ -379,6 +399,11 @@ export default function App() {
                 </div>
                 {locked && <div className="blur-overlay">Locked</div>}
                 <div className="doc-actions">
+                  {user?.role === "admin" && (
+                    <button className="secondary" onClick={() => deleteDoc(doc.id)}>
+                      Delete
+                    </button>
+                  )}
                   <button onClick={() => downloadDoc(doc)} disabled={locked}>
                     {locked ? "Upgrade to unlock" : "Download PDF"}
                   </button>
@@ -413,6 +438,9 @@ export default function App() {
                     Reject
                   </button>
                   <button onClick={() => approve(doc.id, "approve")}>Approve</button>
+                  <button className="secondary" onClick={() => deleteDoc(doc.id)}>
+                    Delete
+                  </button>
                 </div>
               </div>
             ))}
