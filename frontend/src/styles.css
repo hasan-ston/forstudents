@@ -1,16 +1,15 @@
 :root {
-  --bg: #0b1c1a;
-  --card: #0f2623;
-  --text: #e7f5f2;
-  --muted: #9ab7b2;
-  --accent: #0dcdb3;
-  --accent-2: #f59e0b;
-  --border: #1a3631;
-  --shadow: 0 24px 70px rgba(0, 0, 0, 0.3);
+  --bg: #0b1224;
+  --card: #0f172a;
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --accent-2: #a855f7;
+  --border: #1e293b;
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
-  background: radial-gradient(circle at 18% 20%, rgba(13, 205, 179, 0.12), transparent 30%),
-    radial-gradient(circle at 82% 5%, rgba(245, 158, 11, 0.12), transparent 24%),
-    radial-gradient(circle at 50% 60%, rgba(255, 255, 255, 0.04), transparent 35%),
+  background: radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.1), transparent 30%),
+    radial-gradient(circle at 80% 0%, rgba(168, 85, 247, 0.08), transparent 25%),
     var(--bg);
   color: var(--text);
   min-height: 100vh;
@@ -160,12 +159,12 @@ button:active {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
-  background: #112e2a;
+  background: #0d1427;
 }
 
 .plan.selected {
   border-color: var(--accent);
-  box-shadow: 0 10px 30px rgba(13, 205, 179, 0.2);
+  box-shadow: 0 10px 30px rgba(56, 189, 248, 0.2);
 }
 
 .plan h3 {
@@ -185,7 +184,7 @@ button:active {
 
 .doc-card {
   border: 1px solid var(--border);
-  background: #112e2a;
+  background: #0d1427;
   border-radius: 14px;
   padding: 14px;
   position: relative;
@@ -196,7 +195,7 @@ button:active {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(11, 29, 27, 0.82), rgba(11, 29, 27, 0.95));
+  background: linear-gradient(180deg, rgba(11, 18, 36, 0.8), rgba(11, 18, 36, 0.95));
   backdrop-filter: blur(1px);
 }
 
