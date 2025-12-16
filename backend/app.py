@@ -1,10 +1,12 @@
 from threading import Thread
 import os
+import json
 import smtplib
 import uuid
 from datetime import datetime
 from email.message import EmailMessage
 from functools import wraps
+import requests
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -73,6 +75,8 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER or "no-reply@example.com")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "mhd.hasan236@gmail.com")
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
+SENDGRID_FROM = os.getenv("SENDGRID_FROM", EMAIL_FROM)
 S3_BUCKET = os.getenv("S3_BUCKET", "")
 AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", ""))
 
@@ -225,39 +229,52 @@ def _use_s3() -> bool:
 
 
 def send_email(to_address: str, subject: str, body: str) -> bool:
-    """Best-effort SMTP mailer; silently no-ops if SMTP creds are missing."""
-    print(f"=== SEND_EMAIL CALLED ===")
-    print(f"To: {to_address}")
-    print(f"SMTP_HOST: {SMTP_HOST}")
-    print(f"SMTP_USER: {SMTP_USER}")
-    print(f"SMTP_PASS configured: {bool(SMTP_PASS)}")
-    
-    if not to_address or not SMTP_HOST or not SMTP_USER or not SMTP_PASS:
-        print(f"Email skipped - missing config")
+    """Best-effort mailer: tries SendGrid API first, then SMTP."""
+    if not to_address:
         return False
-    
-    try:
-        msg = EmailMessage()
-        msg["Subject"] = subject
-        msg["From"] = EMAIL_FROM
-        msg["To"] = to_address
-        msg.set_content(body)
-        
-        print(f"Connecting to {SMTP_HOST}:{SMTP_PORT}...")
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-            print("Starting TLS...")
-            server.starttls()
-            print("Logging in...")
-            server.login(SMTP_USER, SMTP_PASS)
-            print("Sending message...")
-            server.send_message(msg)
-            print("Email sent successfully!")
-        return True
-    except Exception as e:
-        print(f"!!! EMAIL FAILED: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+
+    # Prefer SendGrid API (avoids SMTP port egress issues on some hosts)
+    if SENDGRID_API_KEY:
+        try:
+            payload = {
+                "personalizations": [{"to": [{"email": to_address}]}],
+                "from": {"email": SENDGRID_FROM},
+                "subject": subject,
+                "content": [{"type": "text/plain", "value": body}],
+            }
+            resp = requests.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                headers={
+                    "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                data=json.dumps(payload),
+                timeout=10,
+            )
+            if 200 <= resp.status_code < 300:
+                return True
+            print(f"Email send failed (SendGrid) to {to_address}: {resp.status_code} {resp.text}")
+        except Exception as e:
+            print(f"Email send failed (SendGrid) to {to_address}: {e}")
+
+    # Fallback to SMTP if configured
+    if SMTP_HOST and SMTP_USER and SMTP_PASS:
+        try:
+            msg = EmailMessage()
+            msg["Subject"] = subject
+            msg["From"] = EMAIL_FROM
+            msg["To"] = to_address
+            msg.set_content(body)
+
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASS)
+                server.send_message(msg)
+            return True
+        except Exception as e:
+            print(f"Email send failed (SMTP) to {to_address}: {e}")
+
+    return False
 
 
 # Auth endpoints
