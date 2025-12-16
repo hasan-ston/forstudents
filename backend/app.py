@@ -233,12 +233,13 @@ def send_email(to_address: str, subject: str, body: str) -> bool:
         msg["From"] = EMAIL_FROM
         msg["To"] = to_address
         msg.set_content(body)
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
             server.starttls()
             server.login(SMTP_USER, SMTP_PASS)
             server.send_message(msg)
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Email send failed to {to_address}: {e}")
         return False
 
 
