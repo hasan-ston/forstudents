@@ -201,6 +201,9 @@ class DownloadAudit(db.Model):
     user_agent = db.Column(db.String(512))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    user = db.relationship("User")
+    document = db.relationship("Document")
+
 
 with app.app_context():
     db.create_all()
@@ -483,6 +486,44 @@ def delete_doc(doc_id: int):
         db.session.rollback()
         return jsonify({"error": "Failed to delete document"}), 500
     return jsonify({"deleted": True, "document_id": doc_id})
+
+
+@app.get("/api/admin/downloads")
+@admin_required
+def list_downloads():
+    """List download audits (admin only). Supports optional filters: user_id, doc_id, limit."""
+    limit = min(int(request.args.get("limit", 100)), 500)
+    user_id = request.args.get("user_id")
+    doc_id = request.args.get("doc_id")
+    q = DownloadAudit.query.order_by(DownloadAudit.created_at.desc())
+    if user_id:
+        try:
+            q = q.filter_by(user_id=int(user_id))
+        except ValueError:
+            return jsonify({"error": "Invalid user_id"}), 400
+    if doc_id:
+        try:
+            q = q.filter_by(document_id=int(doc_id))
+        except ValueError:
+            return jsonify({"error": "Invalid doc_id"}), 400
+    audits = q.limit(limit).all()
+    return jsonify(
+        {
+            "audits": [
+                {
+                    "id": a.id,
+                    "user_id": a.user_id,
+                    "user_email": a.user.email if a.user else None,
+                    "document_id": a.document_id,
+                    "doc_title": a.document.title if a.document else None,
+                    "ip_address": a.ip_address,
+                    "user_agent": a.user_agent,
+                    "created_at": a.created_at.isoformat(),
+                }
+                for a in audits
+            ]
+        }
+    )
 
 
 @app.get("/api/docs/<int:doc_id>/download")
